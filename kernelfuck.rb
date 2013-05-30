@@ -1,203 +1,130 @@
-
-TAPEMAX = 30000
+TAPEMAX = 300
 
 class NestingValue
-  def self.explore(func_name, args, &block)
-    regexp = Regexp.new('([0-9]+)$')
-    match = regexp.match(self.name)
-    num = match[0].to_i
+  def self.explore(func_name, a, &b)
+    /([0-9]+)$/ =~ self.name
+    n = $&.to_i
 
-    steps_of_hole = []
     begin
-      self.class_eval %Q{
-        Val#{num + 1}.#{func_name}(args)
-      }
-    rescue NameError => e
-      block.call(num, args)
+      self.class_eval "V#{n + 1}.#{func_name}(a)"
+    rescue NameError
+      b.call(n, a)
     end
   end
 
-  def self.depth(args)
-    self.explore :depth, args do |num, args|
-      num + 1
+  def self.depth(a)
+    self.explore :depth, a do |n|
+      n + 1
     end
   end
 
-  def self.dig(args)
-    explore :dig, args do |num, args|
-      self.class_eval %Q{
-        class Val#{num + 1} < NestingValue
-        end
-      }
-      num + 1
+  def self.dig(a)
+    explore :dig, a do |n|
+      self.class_eval "class V#{n + 1} < NestingValue; end"
+      n + 1
     end
   end
 
-  def self.fill(args)
-    explore :fill, args do |num, args|
-      if num == 0
-        grand = "#{args}"
-      else
-        grand = (0..num - 1).collect { |i| "Val#{i}" }.unshift(args).join("::")
-      end
-      self.class_eval %Q{
-        #{grand}.class_eval do
-          remove_const :Val#{num}
-        end
-      } 
+  def self.fill(a)
+    explore :fill, a do |n, a|
+      self.class_eval (n == 0 ? "#{a}" : (0..n - 1).map { |i| "V#{i}" }.unshift(a) * "::") + ".class_eval 'remove_const :V#{n}'"
     end
   end
 end
 
 class MemoryBucket
-  def self.pointer 
-    "Val0"
-  end
-
-  def self.val 
-    if not self.const_defined? pointer
-      0
-    else
-      self.class_eval %Q{
-        #{pointer}.depth([]) 
-      }
-    end
-  end
-
-  def self.inc
-    result = if not self.const_defined? pointer
-      self.class_eval %Q{
-        class #{pointer} < NestingValue
-        end
-      }
-      1
-    else
-      self.class_eval %Q{
-        #{pointer}.dig([])
-      }
-    end
-
-    if result == 255
-      self.class_eval do
-        remove_const :Val0
-      end
-    end
-  end
-
-  def self.dec
-    if not self.const_defined? pointer
-      self.class_eval (0..254).inject("") { |define, num| define = "class Val#{254 - num} < NestingValue; #{define} end;" }
-    else
-      self.class_eval %Q{
-        #{pointer}.fill("#{self.name}")
-      }
-    end
-  end
-end
-
-(0..TAPEMAX - 1).each do |address|
-  Kernel.module_eval %Q{
-    class Memory#{address} < MemoryBucket
-    end
-  }
-end
-
-class HeadPosition
-  @@uu = ""
-  def self.inc
-    eval %Q{
-      def $:.sheep#{self.val}
-      end
-    }
-  end
-
-  def self.dec
-    class << $:
-      eval %Q{
-        undef_method "sheep#{HeadPosition.val - 1}"
-      }
-    end
+  def self.ptr
+    "V0"
   end
 
   def self.val
+    self.const_defined?(ptr) ? self.class_eval("#{ptr}.depth([])") : 0
+  end
+
+  def self.inc
+    255 == (self.class_eval self.const_defined?(ptr) ? "#{ptr}.dig([])" : "class #{ptr} < NestingValue; end") && remove_const(ptr)
+  end
+
+  def self.dec
+    self.class_eval self.const_defined?(ptr) ? "#{ptr}.fill('#{self.name}')" : (1..255).inject("") { |s, n| s = "class V#{255 - n} < NestingValue; #{s} end;" }
+  end
+end
+
+(0..TAPEMAX - 1).each do |addr|
+  Kernel.module_eval "class Mem#{addr} < MemoryBucket; end"
+end
+
+class Head
+  def self.forward
+    eval "def $:.pos#{self.pos}; end"
+  end
+
+  def self.backward
+    class << $:
+      eval "undef_method 'pos#{Head.pos - 1}'"
+    end
+  end
+
+  def self.pos
     $:.singleton_methods.size
   end
 end
 
-count = 0
-ops = "++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.<<+++++++++++++++.>.+++.------.--------.>+.>.".split('')
+def run
+  Proc.new { break out }
+end
+
+ops = []
 pos = 0
+
+alias :tv :trace_var
+alias :uv :untrace_var
+
+def loop_code(b)
+  %Q{
+    if Mem#{Head.pos}.val #{b == '[' ? '=' : '!'}= 0
+      uv(:$:)
+      tv(:$:, proc {})
+      $:.clear
+      while uv(:$:).each { |h| tv(:$:, h) }.size > 0
+        $: << nil
+        case ops[pos + #{b == ']' ? '-' : ''}$:.size]
+        when '#{b}'
+          tv(:$:, proc {})
+        when '#{b == '[' ? ']' : '['}'
+          uv(:$:)[1..-1].each { |h| tv(:$:, h) }
+        end
+      end
+      #{b == ']' ? '-' : ''}$:.size + 1
+    end
+  }
+end
+
 begin
   Kernel.__send__ :define_method, :method_missing,
-    case ops[pos]
+    case pos == ops.size ? (ops << STDIN.getc)[-1] : ops[pos]
     when '<'
-      lambda do |*args|
-        HeadPosition.dec
-      end
+      proc { |a| Head.backward }
     when ">"
-      lambda do |*args|
-        HeadPosition.inc
-      end
+      proc { |a| Head.forward }
     when '+'
-      lambda do |*a|
-        eval "Memory#{HeadPosition.val}.inc"
-      end
+      proc { |a| eval "Mem#{Head.pos}.inc" }
     when "-"
-      lambda do |*a|
-        eval "Memory#{HeadPosition.val}.dec"
-      end
+      proc { |a| eval "Mem#{Head.pos}.dec" }
     when "."
-      lambda do |*a|
-        eval "print Memory#{HeadPosition.val}.val.chr"
-      end
+      proc { |a| eval "print Mem#{Head.pos}.val.chr" }
     when "["
-      lambda do |*a|
-        eval %Q{
-          if Memory#{HeadPosition.val}.val == 0
-            cnt = 1
-            pos += 1
-            while cnt > 0
-              case ops[pos]
-              when '['
-                cnt += 1
-              when ']'
-                cnt -= 1
-              end
-              pos += 1
-            end
-          end
-        }
-      end
+      proc { |a| eval loop_code('[') }
     when "]"
-      lambda do |*a|
-        eval %Q{
-          if Memory#{HeadPosition.val}.val != 0
-            cnt = 1
-            pos -= 1
-            while cnt > 0
-              case ops[pos]
-              when ']'
-                cnt += 1
-              when '['
-                cnt -= 1
-              end
-              pos -= 1
-            end
-          end
-        }
-      end
+      proc { |a| eval loop_code(']') }
     when nil
-      lambda do |*a|
-        Kernel.freeze
-      end
+      proc { |a| Kernel.freeze }
     else
-      lambda do |*a|
-      end
+      proc {|a|}
     end
-  run
-  pos += 1
-  raise LocalJumpError.new()
+  run.call
 rescue LocalJumpError => e
+  pos += (t = e.exit_value).kind_of?(Fixnum) ? t : 1
   retry
 rescue RuntimeError
 end
