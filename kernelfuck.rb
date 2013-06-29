@@ -1,32 +1,32 @@
-TAPEMAX = 300
+TAPEMAX = 30000
 
 class NestingValue
-  def self.explore(func_name, a, &b)
+  def self.explore(a, &b)
     /([0-9]+)$/ =~ self.name
     n = $&.to_i
 
     begin
-      self.class_eval "V#{n + 1}.#{func_name}(a)"
+      self.class_eval "V#{n + 1}.explore(a, &b)"
     rescue NameError
       b.call(n, a)
     end
   end
 
-  def self.depth(a)
-    self.explore :depth, a do |n|
+  def self.depth
+    self.explore [] do |n, a|
       n + 1
     end
   end
 
-  def self.dig(a)
-    explore :dig, a do |n|
+  def self.dig
+    explore [] do |n, a|
       self.class_eval "class V#{n + 1} < NestingValue; end"
-      n + 1
+      n + 2
     end
   end
 
   def self.fill(a)
-    explore :fill, a do |n, a|
+    explore a do |n, a|
       self.class_eval (n == 0 ? "#{a}" : (0..n - 1).map { |i| "V#{i}" }.unshift(a) * "::") + ".class_eval 'remove_const :V#{n}'"
     end
   end
@@ -38,11 +38,11 @@ class MemoryBucket
   end
 
   def self.val
-    self.const_defined?(ptr) ? self.class_eval("#{ptr}.depth([])") : 0
+    self.const_defined?(ptr) ? self.class_eval("#{ptr}.depth") : 0
   end
 
   def self.inc
-    255 == (self.class_eval self.const_defined?(ptr) ? "#{ptr}.dig([])" : "class #{ptr} < NestingValue; end") && remove_const(ptr)
+    256 == (self.class_eval self.const_defined?(ptr) ? "#{ptr}.dig" : "class #{ptr} < NestingValue; end") && remove_const(ptr)
   end
 
   def self.dec
@@ -128,3 +128,4 @@ rescue LocalJumpError => e
   retry
 rescue RuntimeError
 end
+
