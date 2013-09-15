@@ -8,19 +8,19 @@ class NestingValue
     begin
       self.class_eval "V#{n + 1}.explore(a, &b)"
     rescue NameError
-      b.call(n, a)
+      b.call(n, a.nil? ? self.name : a)
     end
   end
 
   def self.depth
-    self.explore [] do |n, a|
+    self.explore nil do |n, a|
       n + 1
     end
   end
 
   def self.dig
-    explore [] do |n, a|
-      self.class_eval "class V#{n + 1} < NestingValue; end"
+    self.explore nil do |n, a|
+      self.class_eval "class #{a}::V#{n + 1} < NestingValue; end"
       n + 2
     end
   end
