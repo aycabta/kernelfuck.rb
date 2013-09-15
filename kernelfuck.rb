@@ -2,32 +2,32 @@ TAPEMAX = 30000
 
 class NestingValue
   def self.explore(a, &b)
-    /([0-9]+)$/ =~ self.name
+    /([0-9]+)$/ =~ name
     n = $&.to_i
 
     begin
-      self.class_eval "V#{n + 1}.explore(a, &b)"
+      class_eval "V#{n + 1}.explore(a, &b)"
     rescue NameError
-      b.call(n, a.nil? ? self.name : a)
+      b.call(n, a.nil? ? name : a)
     end
   end
 
   def self.depth
-    self.explore nil do |n, a|
+    explore nil do |n, a|
       n + 1
     end
   end
 
   def self.dig
-    self.explore nil do |n, a|
-      self.class_eval "class #{a}::V#{n + 1} < NestingValue; end"
+    explore nil do |n, a|
+      class_eval "class #{a}::V#{n + 1} < NestingValue; end"
       n + 2
     end
   end
 
   def self.fill(a)
     explore a do |n, a|
-      self.class_eval (n == 0 ? "#{a}" : (0..n - 1).map { |i| "V#{i}" }.unshift(a) * "::") + ".class_eval 'remove_const :V#{n}'"
+      class_eval (n == 0 ? "#{a}" : (0..n - 1).map { |i| "V#{i}" }.unshift(a) * "::") + ".class_eval 'remove_const :V#{n}'"
     end
   end
 end
@@ -38,15 +38,15 @@ class MemoryBucket
   end
 
   def self.val
-    self.const_defined?(ptr) ? self.class_eval("#{ptr}.depth") : 0
+    const_defined?(ptr) ? class_eval("#{ptr}.depth") : 0
   end
 
   def self.inc
-    256 == (self.class_eval self.const_defined?(ptr) ? "#{ptr}.dig" : "class #{ptr} < NestingValue; end") && remove_const(ptr)
+    256 == (class_eval const_defined?(ptr) ? "#{ptr}.dig" : "class #{ptr} < NestingValue; end") && remove_const(ptr)
   end
 
   def self.dec
-    self.class_eval self.const_defined?(ptr) ? "#{ptr}.fill('#{self.name}')" : (1..255).inject("") { |s, n| s = "class V#{255 - n} < NestingValue; #{s} end;" }
+    class_eval const_defined?(ptr) ? "#{ptr}.fill('#{name}')" : (1..255).inject("") { |s, n| s = "class V#{255 - n} < NestingValue; #{s} end;" }
   end
 end
 
@@ -56,7 +56,7 @@ end
 
 class Head
   def self.forward
-    eval "def $:.pos#{self.pos}; end"
+    eval "def $:.pos#{pos}; end"
   end
 
   def self.backward
